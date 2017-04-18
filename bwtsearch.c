@@ -37,17 +37,17 @@ int main(int argc, char **argv){
     patterns[0] = argv[3];
     npatterns = 1;
 
-    if(argc > 3) {
+    if(argc > 4) {
         patterns[1] = argv[4];
         npatterns = 2;
     } 
 
-    if(argc > 4) {
+    if(argc > 5) {
         patterns[2] = argv[5];
         npatterns = 3;
     }
 
-    /*printf("printing c and freq");*/
+    printf("printing c and freq");
 #ifdef _DEBUG_
     print_c_and_freq();
 
@@ -58,11 +58,12 @@ int main(int argc, char **argv){
     int first, last,num_matches, ret;
     first = last = ret = num_matches = 0;
 #ifdef DEBUG
-    printf("start backwards_search on %s with length %lu\n", p1, strlen(p1));
+    /*printf("start backwards_search on %s with length %lu\n", p1, strlen(p1));*/
 #endif
     
-    GHashTable **tables = (GHashTable **) malloc(npatterns * sizeof(GHashTable**));
-    for(int i = 0; i < npatterns; i++) {
+    GHashTable **tables = (GHashTable **) malloc(npatterns * sizeof(GHashTable*));
+    int i,j;
+    for(i = 0; i < npatterns; i++) {
         tables[i] = g_hash_table_new(g_int_hash, g_int_equal);
 
         int first, last, num_matches;
@@ -71,51 +72,82 @@ int main(int argc, char **argv){
         num_matches = backwards_search(patterns[i], strlen(patterns[i]), &first, &last);
         int *keys = (int*) malloc(num_matches * sizeof(int));
         int *values = (int*) malloc(num_matches * sizeof(int));
-        for(int j = 0; j < num_matches; j++) {
+        for(j = 0; j < num_matches; j++) {
             keys[j] = first;
             values[j] = first;
-            g_hash_table_insert(tables[i], keys[j], values[j]);
+            g_hash_table_insert(tables[i], &keys[j], &values[j]);
             first++;
         }
     }
 
-    //interate first hash_map
+    //iterate first hash_map
     GList *elements = g_hash_table_get_keys(tables[0]);
-    while(g_hash_table_size(tables[0])) {
+
+    while(check_matches_left(tables)) {
+        //get first key
         int key = *((int*)g_list_first(elements)->data);
-        
+        GList **list;
 
-    }
-
-    while(num_matches > 0) {
-#ifdef _DEBUG_
-        printf("processing match %d with first %d\n", num_matches, first);
-#endif
-        ret = decode_backwards(first, &bstr);
+        char *bstr;  
+        ret = decode_backwards(key, &bstr, list);
         if(!ret) {
-            free(bstr);
-            num_matches--;
-            first++;
+            remove_matches_in_list(tables, list);
+            free_list(*list);
             continue;
         }
-        ret = decode_forward(first, &fstr);
+
+        char *fstr;  
+        ret = decode_forwards(key, &fstr, list);
         if(!ret) {
-            free(bstr);
-            free(fstr);
-            first++;
-            num_matches--;
+            remove_matches_in_list(tables, list);
+            free_list(*list);
+            continue;
+        }
+        
+        if(!check_key_matches(key, tables)) {
+            remove_matches_in_list(tables,list);
+            free_list(*list);
             continue;
         }
 
         get_str(bstr, fstr);
-        num_matches--;
-        first++;
         printf("%s\n", bstr);
-        free(bstr);
+        remove_matches_in_list(tables,list);
+        printf("finished remove\n");
+        free_list(*list);
+        printf("finished remove\n");
     }
-
     close(fin);
     close(fout);
+}
+void remove_matches_in_list(GHashTable **tables, GList **list){
+    GList *tmp = *list;
+    printf("BEFORE\n");
+    for(tmp = *list; tmp; tmp = tmp->next){
+        for(int i = 0; i< npatterns; i++) {
+            printf("tmp-data is %p\n", tmp);
+            g_hash_table_remove(tables[i], (int*)tmp->data);
+        }
+    }
+}
+
+//check to see that all hash tables still have mathces
+int check_matches_left(GHashTable **tables){
+    for(int i = 0; i < npatterns; i++){
+        if(!g_hash_table_size(tables[i])) {
+                return 0;
+        }
+    }
+}
+
+//check if all hash tables except the first one have matches
+int check_key_matches(int key, GHashTable **tables){
+    for(int i = 1; i < npatterns; i++){
+        if(!g_hash_table_contains(tables[i], &key)) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 void print_bwt(){
@@ -300,16 +332,23 @@ char get_f_from_index(int index) {
     return c;
 }
 
-int decode_forward(int index, char** ostr){
+int decode_forwards(int index, char** ostr, GList **olist){
     int i = 0;
     char c;
     char *str;
+    printf("in forward decode\n");
     str = (char *) malloc(sizeof(char) * BASE_RECORD_SIZE );
+    gint *element;
+    GList *list = NULL;
+
     *ostr = str;
     char f_char = get_f_from_index(index);
     int delta = index - C[f_char];
     index = bwt_select(f_char, delta + 1);
-    /*printf("in forward decode, f_char %c delta %d index %d\n", f_char, delta, index);*/
+    element = g_malloc(sizeof (gint));
+    *element = index;
+    list = g_list_prepend(list, element);
+    printf("in forward decode, f_char %c delta %d index %d\n", f_char, delta, index);
     /*c = L[index];*/
     c = read_l_char(index);
     if(c == '[') {
@@ -319,31 +358,44 @@ int decode_forward(int index, char** ostr){
 
     while(c != '['){
         if( c == ']') {
+            olist = &list;
+            free(str);
             return 0;
         }
+        printf("in forward decode, f_char %c delta %d index %d\n", f_char, delta, index);
         str[i++] = c;
-        char f_char = get_f_from_index(index);
-        int delta = index - C[f_char];
+        f_char = get_f_from_index(index);
+        delta = index - C[f_char];
         index = bwt_select(f_char, delta + 1);
+        element = g_malloc(sizeof (gint));
+        *element = index;
+        list = g_list_prepend(list, element);
         /*printf("in forward decode, C[f_char] = %d f_char %c delta %d index %d\n", C[f_char], f_char, delta, index);*/
         /*c = L[index];*/
         c = read_l_char(index);
     }
     str[i] = '\0';
-    /*printf("forward decode produced: %s\n", str);*/
+    olist = &list;
+    printf("forward decode produced: %s\n", str);
     return i+1;
 }
 
-int decode_backwards(int index, char** ostr){
+int decode_backwards(int index, char** ostr, GList **olist){
     int i = 0;
     char c = 0;
     char *str;
     int rbracket_seen = 0;
+    gint *element;
+    GList *list = NULL;
+
     str = (char *) malloc(sizeof(char) * BASE_RECORD_SIZE );
     *ostr = str;
 #ifdef _DEBUG_
     printf("Starting decode backwards index is %d c = %c\n", index,read_l_char(index));
 #endif
+    element = g_malloc(sizeof (gint));
+    *element = index;
+    list = g_list_prepend(list, element);
     c = read_l_char(index);
     str[i++] = c;
     if( c == ']') {
@@ -353,6 +405,9 @@ int decode_backwards(int index, char** ostr){
     while(c != '[' ){
         char tmp = read_l_char(index);
         index = C[tmp] + bwt_rank(tmp,index - 1);
+        element = g_malloc(sizeof (gint));
+        *element = index;
+        list = g_list_prepend(list, element);
 #ifdef _DEBUG_
         printf("decode backwards index is %d c = %c\n", index,c);
 #endif
@@ -371,10 +426,29 @@ int decode_backwards(int index, char** ostr){
 #endif
 
     if(!rbracket_seen) {
+        free(str);
+
         /*printf("backward decode return 0\n");*/
+        *olist = list;
         return 0;
     }
+    printf("returning \n");
+    *ostr = str;
+    olist = &list;
+    printf("returning \n");
     return i+1;
+}
+void free_list(GList *list){
+    GList *tmp;
+    /* Frees the data in list */
+    tmp = list;
+    while (tmp) {
+        g_free (tmp->data);
+        tmp = g_list_next (tmp);
+    }
+
+    /* Frees the list structures */
+    g_list_free (list);
 }
 
 //returns number of pattern matches, sets first and last
