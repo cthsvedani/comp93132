@@ -17,16 +17,18 @@ char* patterns[3];
 /*char* p1; */
 /*char* p2; */
 /*char* p3; */
-
+/*int k_array_size;*/
 off_t size; //size of text
 int* C; //ascii-max big, gives frequency of all chars
 int* freq; //ascii-max big, gives frequency of all chars
 
 #define ASCII_MAX 128
-#define K_ARRAY_SIZE 200000
+#define K_ARRAY_SIZE 2048
 #define BASE_RECORD_SIZE 20000
 
-
+void destroy_key(gpointer data) {
+    free(data);
+}
 
 int main(int argc, char **argv){
     
@@ -47,10 +49,9 @@ int main(int argc, char **argv){
         npatterns = 3;
     }
 
+#ifdef DEBUG
     printf("printing c and freq");
-#ifdef _DEBUG_
     print_c_and_freq();
-
     /*print_bwt();*/
 #endif
     /*printf("size is %d occ[127] is %d freq[127] is %d sum is %d\n", size, C[127], freq[127], C[127]+freq[127]);*/
@@ -71,34 +72,41 @@ int main(int argc, char **argv){
 
         num_matches = backwards_search(patterns[i], strlen(patterns[i]), &first, &last);
         int *keys = (int*) malloc(num_matches * sizeof(int));
-        int *values = (int*) malloc(num_matches * sizeof(int));
+        /*int *values = (int*) malloc(num_matches * sizeof(int));*/
         for(j = 0; j < num_matches; j++) {
             keys[j] = first;
-            values[j] = first;
-            g_hash_table_insert(tables[i], &keys[j], &values[j]);
+            /*values[j] = first;*/
+            g_hash_table_insert(tables[i], &keys[j], 0);
             first++;
         }
     }
 #ifdef _DEBUG_
-    printf("mathces \n");
+    printf("mathces npatters %d\n", npatterns);
     printf("h1 %d h2 %d h3 %d \n", g_hash_table_size(tables[0]), g_hash_table_size(tables[1]), g_hash_table_size(tables[2]));
 #endif
-    getchar();
+
     //sort hashmaps with largest first to eliminate lists faster
     sort_hashmaps(&tables);
 
+#ifdef _DEBUG_
     printf("mathces \n");
-    printf("h1 %d h2 %d h3 %d \n", g_hash_table_size(tables[0]), g_hash_table_size(tables[1]), g_hash_table_size(tables[2]));
     getchar();
+#endif
 
     //iterate first hash_map
-
+    int k = 0;
     while(check_matches_left(tables)) {
+        k++;
         //get first key
         GList *elements = g_hash_table_get_keys(tables[0]);
+        if((k % 500) == 0) {
+            printf("h1 %d h2 %d h3 %d \n", g_hash_table_size(tables[0]), g_hash_table_size(tables[1]), g_hash_table_size(tables[2]));
+        }
         int key = *((int*)g_list_first(elements)->data);
 
+#ifdef _DEBUG_
         printf("first key is %d\n", key);
+#endif
         GList *list = NULL;
 
         char *bstr;  
@@ -116,7 +124,8 @@ int main(int argc, char **argv){
         if(!ret) {
             remove_matches_in_list(tables, list);
             free_list(list);
-            printf("forward fail\n");
+            free(bstr);
+            /*printf("forward fail\n");*/
             continue;
         }
         /*printf("size after forward = %d\n", g_list_length(list));*/
@@ -124,14 +133,16 @@ int main(int argc, char **argv){
         if(!check_list_match(list, tables)) {
             remove_matches_in_list(tables,list);
             free_list(list);
+            free(bstr);
+            free(fstr);
             /*printf("no more matches\n");*/
             continue;
         }
 
         get_str(bstr, fstr);
         printf("%s\n", bstr);
+        free(bstr);
         remove_matches_in_list(tables,list);
-        /*printf("finished remove\n");*/
         free_list(list);
     }
     close(fin);
@@ -159,7 +170,7 @@ void sort_hashmaps(GHashTable ***tables){
     while(swap) {
         swap = 0;
         for(int i = 0; i < npatterns - 1; i++) {
-            if(g_hash_table_size(tabs[i]) < g_hash_table_size(tabs[i+1])){
+            if(g_hash_table_size(tabs[i]) > g_hash_table_size(tabs[i+1])){
                 tmp = tabs[i];
                 tabs[i] = tabs[i+1];
                 tabs[i+1] = tmp;
@@ -181,21 +192,32 @@ int check_matches_left(GHashTable **tables){
 //check if all hash tables except the first one have matches
 int check_list_match(GList *list, GHashTable **tables){
     GList *tmp = list;
-    int matches[2];
+    int* matches = (int*) calloc(npatterns - 1 , sizeof(int));
     int *data;
+
+
+    /*getchar();*/
     for(; tmp; tmp = tmp->next){
         data = tmp->data;
+        /*printf("checking %d\n", *data);*/
+        /*getchar();*/
         for(int i = 1; i < npatterns; i++){
             if(g_hash_table_contains(tables[i], data)) {
                 matches[i-1] = 1;
+                /*printf("matcherino %d table %d\n", *data, i);*/
             }
         }
     }
-    if(!matches[0] || !matches[1]) {
-        return 0;
-    } else {
-        return 1;
+
+    for(int j = 0; j < (npatterns - 1); j++) {
+        if(!matches[j]) {
+            /*printf("return 0\n");*/
+            free(matches);
+            return 0;
+        }
     }
+    free(matches);
+    return 1;
 }
 
 void print_bwt(){
@@ -337,8 +359,10 @@ char read_l_char(int index){
     while(ret != 1){
         /*printf("in read l index %d\n", index);*/
         ret = read(fin,&c, 1);
-        if(ret != 1)
+        if(ret != 1) {
+            printf("ERRRROR\n");
             getchar();
+        }
     }
     return c;
 }
@@ -392,13 +416,9 @@ int decode_forwards(int index, char** ostr, GList** olist){
     char f_char = get_f_from_index(index);
     int delta = index - C[f_char];
     index = bwt_select(f_char, delta + 1);
-    /*element = g_malloc(sizeof (gint));*/
-    /**element = index;*/
-    /**olist = g_list_prepend(*olist, element);*/
-    /*printf("in forward decode, f_char %c delta %d index %d\n", f_char, delta, index);*/
-    /*c = L[index];*/
     c = read_l_char(index);
     if(c == '[') {
+        free(str);
         return 0;
     }
 
@@ -408,7 +428,9 @@ int decode_forwards(int index, char** ostr, GList** olist){
             free(str);
             return 0;
         }
+#ifdef _DEBUG_
         printf("in forward decode, f_char %c delta %d index %d\n", f_char, delta, index);
+#endif
         str[i++] = c;
         f_char = get_f_from_index(index);
         delta = index - C[f_char];
@@ -421,7 +443,9 @@ int decode_forwards(int index, char** ostr, GList** olist){
         c = read_l_char(index);
     }
     str[i] = '\0';
+#ifdef _DEBUG_
     printf("forward decode produced: %s\n", str);
+#endif
     return i+1;
 }
 
@@ -485,7 +509,7 @@ void free_list(GList *list){
     /* Frees the data in list */
     tmp = list;
     while (tmp) {
-        g_free (tmp->data);
+        g_free((gint*)tmp->data);
         tmp = g_list_next (tmp);
     }
 
@@ -531,6 +555,40 @@ void print_c_and_freq(){
     }
 }
 
+//returns the bin where c occurs #occ times
+int find_kth_bin(char c, int occ) {
+    int L, R, m, freq,prev_freq;
+    L = 0;
+    R = size / K_ARRAY_SIZE;
+
+    while(R >= L) {
+        m = (L + R)/2;
+        /*printf("in binary search L %d R %d M %d\n", L, R, m);*/
+
+        //search m'th + 1 bin
+        lseek(fout, (((m) * ASCII_MAX) + c) * sizeof(int), SEEK_SET); 
+        read(fout, &freq, sizeof(int));
+
+        if(freq == occ) {
+            return m;
+        } else if(freq < occ) {
+            //check next bin
+            lseek(fout, (((m+1) * ASCII_MAX) + c) * sizeof(int), SEEK_SET); 
+            read(fout, &prev_freq, sizeof(int));
+            if(prev_freq > occ) {
+                return m+1;
+            } else {
+                L = m + 1;
+            }
+        //freq > occ
+        } else {
+            R = m - 1;
+        }
+    }
+    return 0;
+
+}
+
 //currently n time, could be speed up by array with k bins
 int bwt_select(char c, int occ){
     int times_seen = 0;
@@ -539,31 +597,40 @@ int bwt_select(char c, int occ){
     int k = 0;
 
     if(size > K_ARRAY_SIZE) {
-        int ret = 0;
-        lseek(fout, 0, SEEK_SET); 
-        while (times_seen < occ) {
-            int freqk[ASCII_MAX];
-            ret = read(fout, freqk, ASCII_MAX * sizeof(int));
-            if(ret != (ASCII_MAX * sizeof(int))) {
-                printf("SELECT READ ERROR, ret is %d, k is %d\n", ret, k);
-                getchar();
-            }
+        k = find_kth_bin(c, occ);
+    } else {
+        k = 0;
+    }
 
-            prev_freq = times_seen;
-            times_seen = freqk[c];
-            k += 1;
-        }
+    if(k) {
+        int freqc;
+        //read K'th bin
+        lseek(fout, (((k-1) * ASCII_MAX) + c) * sizeof(int), SEEK_SET); 
+        read(fout, &freqc, sizeof(int));
+        times_seen = freqc;
+
+        /*int ret = 0;*/
+        /*lseek(fout, 0, SEEK_SET); */
+        /*lseek(fout, c *sizeof(int), SEEK_SET);*/
+        /*while (times_seen < occ) {*/
+            /*int freqk;*/
+            /*ret = read(fout, &freqk, sizeof(int));*/
+            /*lseek(fout, (ASCII_MAX - 1) *sizeof(int), SEEK_CUR);*/
+
+            /*prev_freq = times_seen;*/
+            /*times_seen = freqk;*/
+            /*k += 1;*/
+        /*}*/
     }
     if( times_seen == occ) {
         return (k * K_ARRAY_SIZE) - 1;
     }
     /*printf("BWTSELECT times seen %d, prev_freq %d\n", times_seen, prev_freq);*/
 
-    int delta_freq = times_seen - prev_freq;
-    times_seen -= delta_freq;
+    /*int delta_freq = times_seen - prev_freq;*/
+    /*times_seen -= delta_freq;*/
 
     if(k) {
-        k -= 1;
         lseek(fin, (k * K_ARRAY_SIZE), SEEK_SET);
     } else {
         lseek(fin, 0, SEEK_SET);
@@ -586,7 +653,7 @@ int bwt_select(char c, int occ){
         }
     }
     printf("ERROR:select return -1 for %d seen %d times\n", c, occ);
-    printf("ERROR:times_seen %d, delta_freq %d\n", times_seen, delta_freq);
+    printf("ERROR:times_seen %d\n", times_seen);
     getchar();
     return -1;
 }

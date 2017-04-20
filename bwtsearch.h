@@ -35,5 +35,7 @@ void remove_matches_in_list(GHashTable **tables, GList *list);
 int check_key_matches(int key, GHashTable **tables);
 void sort_hashmaps(GHashTable ***tables);
 int check_list_match(GList *list, GHashTable **tables);
+void destroy_key(gpointer data);
+int find_kth_bin(char c, int index);
 
 #endif

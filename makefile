@@ -1,5 +1,5 @@
 CC=gcc --std=c11
-CFLAGS=-I. -pg $(shell pkg-config --cflags glib-2.0)
+CFLAGS=-I. $(shell pkg-config --cflags glib-2.0)
 DEPS = bwtsearch.h
 OBJ_E = bwtsearch.o
 LIBS = $(shell pkg-config --libs glib-2.0)
